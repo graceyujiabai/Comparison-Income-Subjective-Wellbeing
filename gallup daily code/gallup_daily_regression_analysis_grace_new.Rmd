@@ -1,0 +1,636 @@
+---
+title: "Gallup US Daily - Regression Analysis"
+author: "Grace Bai"
+date: "3/13/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+### Load Libraries
+
+```{r}
+# Load requisite software libraries
+library(tidyverse)
+library(lme4)
+#install.packages("stargazer")
+library(stargazer)
+library(haven)
+library(ggplot2)
+library(GGally)
+library(readr)
+```
+
+## If proceeding from previous analysis:
+### Directly use dataframe (gd.full) from previous analyses
+
+```{r}
+# Load the cleaned data for all years combined
+# gd.try <- read_csv("gd_full.csv") #lose 2 variables every time I convert the file to rds??
+
+head(gd.full) #this is not an rds file but a variable created from previous code files
+```
+
+### Join census and chr data
+```{r}
+getwd()
+#remember to load functions
+df <- join_census_data(gd.full, 2017)
+df <- join_chr_data(df, 2014)
+```
+
+### Join rf predictions
+```{r}
+#rf.predictions <- read_csv("gallup_rf_id_predincome.csv")
+
+# df <- left_join(df, rf.predictions, by = "subid")
+
+df <- left_join(df, gallup_rf_income, by = "subid")
+```
+
+### Change subid data type in "df"
+```{r}
+df <- mutate(df, subid = as.factor(subid))
+```
+
+
+### Join demographic median income
+```{r}
+calculate_median_income_sar <- function(df){
+  med_inc_gallup <-
+    df %>% 
+    dplyr::select(
+      raw_income,
+      age,
+      sex,
+      race,
+      COMB_WEIGHT
+    ) %>% 
+    filter_all(all_vars(!is.na(.))) %>% 
+    mutate(
+      age_dec = round(age, digits = -1)
+    ) %>% 
+    group_by(
+      age_dec,
+      sex,
+      race
+    ) %>% 
+    summarise(
+      mean_income_demo_sar = matrixStats::weightedMean(raw_income, w = COMB_WEIGHT, na.rm = TRUE),
+      median_income_demo_sar = matrixStats::weightedMedian(raw_income, w = COMB_WEIGHT, na.rm = TRUE),
+      gini_demo_sar = reldist::gini(raw_income, w = COMB_WEIGHT)
+    ) %>% 
+    ungroup()
+  
+  df <-
+    df %>% 
+    mutate(
+      age_dec = round(age, digits = -1)
+    ) %>% 
+    left_join(
+      med_inc_gallup,
+      by = c("sex", "age_dec", "race")
+    )
+  
+  return(df)
+}
+
+#if proceeding from previous analysis
+df <- calculate_median_income_sar(df)
+
+# write_csv(df, "regression_analysis_grace_full.csv")
+
+#if loading data directly, see chunk below
+```
+
+## If data file was already saved: directly load data and change data types
+```{r}
+df <- read_csv("regression_analysis_grace_full.csv")
+head(df)
+```
+## Preliminaries
+
+### Glimpse Data
+```{r}
+# Take a look at the dataframe using glimpse() and head() to make sure there aren't any issues 
+str(df)
+head(df)
+```
+
+
+Feel free to add in any additional chunks of code that you think might be helpful for the analysis, such as recoding any variables that may have been converted to an inappropriate datatype when you loaded the data. This should only include things that come before the primary analysis. Make sure to include a heading with three pound signs / hash tags to appropriately label what the chunk of code is doing.
+
+### Select variables
+The predictors will include the following participant-level variables:
+- Own income (converted to USD)
+- Education (coded as a factor variable)
+- Race
+- Sex
+- Employment status
+- Marital status
+- Age
+- Year of data collection
+Also county-level variables:
+- Total Population
+- Median home value
+- Land area (measured in 2010)
+- Ratio of physicians to population (variable called physicians...)
+
+Predictors should also include: (for later models)
+- Geographic median income
+- Demographic median income
+- Random forest income predictions
+
+Outcome variable:
+- Ladder now
+
+Remember to select:
+- subid
+- COMB.WEIGHT
+
+4/4: added demographic median income
+```{r}
+df <- select(df, c(subid,
+                   fips_code,
+                        raw_income, 
+                        education, 
+                        race, 
+                        sex, 
+                        employment_all, 
+                        married, 
+                        age, 
+                        year,
+                        total_pop_county, 
+                        median_income_county, 
+                        median_home_value_county, 
+                        land_area_2010, 
+                        physicians_scale,
+                        rf.predictions,
+                        median_income_demo_sar,
+                        ladder_now,
+                        COMB_WEIGHT))
+```
+
+
+### Filter NAs
+
+Filter out NA's for any variables that we will use in our regression analysis. See below for the variables we include in the regression analysis.
+ 1 Single/Never been married
+ 2 Married
+ 3 Separated
+ 4 Divorced
+ 5 Widowed
+ 6 Domestic partnership/Living with partner (not legally married)
+```{r}
+#filter out NAs
+head(df)
+df <- df %>%
+  dplyr::select(
+    subid,
+                   fips_code,
+                        raw_income, 
+                        education, 
+                        race, 
+                        sex, 
+                        employment_all, 
+                        married, 
+                        age, 
+                        year,
+                        total_pop_county, 
+                        median_income_county, 
+                        median_home_value_county, 
+                        land_area_2010, 
+                        physicians_scale,
+                        rf.predictions,
+                        median_income_demo_sar,
+                        ladder_now,
+                        COMB_WEIGHT) %>%
+  filter_at(
+    vars(subid,
+                   fips_code,
+                        raw_income, 
+                        education, 
+                        race, 
+                        sex, 
+                        employment_all, 
+                        married, 
+                        age, 
+                        year,
+                        total_pop_county, 
+                        median_income_county, 
+                        median_home_value_county, 
+                        land_area_2010, 
+                        physicians_scale,
+                        rf.predictions,
+                        median_income_demo_sar,
+                        ladder_now,
+                        COMB_WEIGHT),
+    all_vars(!is.na(.))
+  )
+
+
+#check if there still are NA values
+for (i in 1:ncol(df)){
+  na <- sum(is.na(df[,i]))
+  print(na)
+}
+
+# write_csv(df, "regression_analysis_grace_cleaned.csv")
+```
+
+### Recode factor levels
+4/2: Grace will take care of variables that weren't coded correctly in the regressions for now to save time. Should probbaly recode in the munge_data function to begin with.
+4/3: use mutate_at.
+4/21 side note: seems like saving data files changes data types. keep this here for now.
+```{r}
+df <- mutate_at(df,
+                vars(subid,
+                  education,
+                     race,
+                     sex,
+                     employment_all,
+                     married),
+                as.factor)
+
+# check levels of factor variables
+sapply(df, levels)
+
+# recode
+df$married <- ifelse(df$married %in% c(1:5), df$married, 6) %>% as.factor
+# df$sex <- ifelse(df$sex %in% c(1),0,1) %>% as.factor #is correct when using head(df), somehow had 1s and 2s in variable list (global environment)
+# df$employment_all <- ifelse(df$employment_all %in% c(1),0,1) %>% as.factor #same as above
+
+sapply(df, levels)
+head(df)
+```
+
+### Create scaled df for modeling
+#### Name the scaled dataframe "modeling_df"
+```{r}
+#select variables
+modeling_df <- select(df, c(subid,
+                        fips_code,
+                        raw_income, 
+                        education, 
+                        race, 
+                        sex, 
+                        employment_all, 
+                        married, 
+                        age, 
+                        year,
+                        total_pop_county, 
+                        median_income_county, 
+                        median_home_value_county, 
+                        land_area_2010, 
+                        physicians_scale,
+                        rf.predictions,
+                        median_income_demo_sar,
+                        ladder_now,
+                        COMB_WEIGHT
+                         ))
+
+#scale variables and rename
+modeling_df <- mutate(modeling_df,
+                         fips_code = as.factor(fips_code),
+                         ladder_now = scale(ladder_now),
+                         raw_income = scale(raw_income),
+                         age = scale(age),
+                         total_pop_county = scale(total_pop_county),
+                         median_home_value_county = scale(median_home_value_county),
+                         land_area_2010 = scale(land_area_2010),
+                         median_income_county = scale(median_income_county),
+                         median_income_demo_sar = scale(median_income_demo_sar)
+                         ) %>% rename(
+                           ladder_now_scale = ladder_now,
+                           income_usd_scale = raw_income,
+                           age_scale = age,
+                           total_pop_county_scale = total_pop_county,
+                           median_home_value_county_scale  = median_home_value_county,
+                           land_area_2010_scale = land_area_2010,
+                           median_income_county_scale = median_income_county,
+                           demographic_median_income_scale = median_income_demo_sar,
+                           rf.predictions_scale = rf.predictions)
+
+str(modeling_df)
+nrow(modeling_df)
+```
+
+## Analysis
+
+### Model basics
+For our first model, we will fit a mixed effects linear regression model where the outcome is participants' Cantril Ladder ratings of their current life satisfaction. 
+
+The predictors will include the following participant-level variables:
+- Own income (converted to USD)
+- Education (coded as a factor variable)
+- Race
+- Sex
+- Employment status
+- Marital status
+- Age
+- Year of data collection
+Also county-level variables:
+- Total Population
+- Median home value
+- Land area (measured in 2010)
+- Ratio of physicians to population (variable called physicians...)
+
+### Fit the Baseline Regression Model
+For our first model, we will fit a mixed effects linear regression model where the outcome is participants' Cantril Ladder ratings of their current life satisfaction. 
+
+The predictors will include the following participant-level variables:
+- Own income (converted to USD)
+- Education (coded as a factor variable)
+- Race
+- Sex
+- Employment status
+- Marital status
+- Age
+- Year of data collection
+Also county-level variables:
+- Total Population
+- Median home value
+- Land area (measured in 2010)
+- Ratio of physicians to population (variable called physicians...)
+
+
+This model should also include random effects:
+- A random intercept for participant and a by-participant random slope for own income (something like (1 + income | participant))
+
+I also use the following arguments for REML = FALSE (for eas of model comparison) and then for control = lmerControl(optimizer = "bobyqa") for faster model fitting.
+
+Save the model to baseline_model. Please comment on the results of the model. Which of our key predictors (own income) are significant and in what direction. Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+```{r}
+baseline_model <- lmer(ladder_now_scale ~ 
+                         (1+income_usd_scale|fips_code) +
+                         income_usd_scale +
+                         
+                         education +
+                         race +
+                         sex +
+                         employment_all +
+                         married +
+                         age_scale +
+                         year +
+                         total_pop_county_scale +
+                         median_home_value_county_scale +
+                         land_area_2010_scale +
+                         physicians_scale,
+                       
+                       REML = F,
+                       control = lmerControl(optimizer = "bobyqa"),
+                       data = modeling_df)
+
+summary(baseline_model)
+
+# #assess convergence
+# relgrad <- with(baseline_model2@optinfo$derivs,solve(Hessian,gradient)) 
+# max(abs(relgrad))
+# 
+# relgrad <- with(baseline_model@optinfo$derivs,solve(Hessian,gradient)) 
+# max(abs(relgrad))
+# 
+# #check whether there are singularity issues
+# tt <- getME(baseline_model,"theta")
+# ll <- getME(baseline_model,"lower")
+# min(tt[ll==0]) #shuold not be too small
+
+#write models to csv
+write_csv(broom.mixed::tidy(baseline_model),"baseline_model.csv")
+write_csv(data.frame(capture.output(baseline_model)),"baseline_model_full.csv")
+```
+
+[Commentary goes here]
+
+
+### Fit the geographic median income model.
+
+For our second model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - geographic median income at the county level - and an additional random effect - a by-participant random slope for geographic median income at the county level (something like (1 + median_income_county | participant)).
+
+Save this model to geographic_median_income_model.Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect? Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+Note that this model should use the exact same rows of data as we used for the previous model.
+
+```{r}
+geographic_median_income_model <- lmer(ladder_now_scale ~ 
+                                        (1+income_usd_scale|fips_code) + 
+                                        (1+median_income_county_scale|fips_code) +
+                                         
+                                         income_usd_scale +
+                                         median_income_county_scale +
+                                         
+                                         education +
+                                         race +
+                                         sex +
+                                         employment_all +
+                                         married +
+                                         age_scale +
+                                         year +
+                                         total_pop_county_scale +
+                                         median_home_value_county_scale +
+                                         land_area_2010_scale +
+                                         physicians_scale,
+                                       REML = F,
+                                       control = lmerControl(optimizer = "bobyqa"),
+                       data = modeling_df)
+
+summary(geographic_median_income_model)
+
+write_csv(broom.mixed::tidy(geographic_median_income_model),"geographic_median_income_model.csv")
+write_csv(data.frame(capture.output(geographic_median_income_model)),"geographic_median_income_model_full.csv")
+```
+
+[Commentary goes here]
+
+
+### Fit the demographic median income model.
+
+For our third model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic median income using sex, age, and race - and an additional random effect - a by-participant random slope for demographic median income (something like (1 + demographic_median_income | participant)).
+
+Save this model to demographic_median_income.
+
+Note that this model should use the exact same rows of data as we used for the previous two models.
+
+Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+```{r}
+demographic_median_income_model <- lmer(ladder_now_scale ~ 
+                                        (1+income_usd_scale|fips_code) + 
+                                        (1+demographic_median_income_scale|fips_code) +
+                                          
+                                         income_usd_scale +
+                                         demographic_median_income_scale +
+                                         
+                                         education +
+                                         race +
+                                         sex +
+                                         employment_all +
+                                         married +
+                                         age_scale +
+                                         year +
+                                         total_pop_county_scale +
+                                         median_home_value_county_scale +
+                                         land_area_2010_scale +
+                                         physicians_scale,
+                                       REML = F,
+                                       control = lmerControl(optimizer = "bobyqa"),
+                                       data = modeling_df)
+
+summary(demographic_median_income_model)
+
+write_csv(broom.mixed::tidy(demographic_median_income_model),"demographic_median_income_model.csv")
+write_csv(data.frame(capture.output(demographic_median_income_model)),"demographic_median_income_model_full.csv")
+```
+
+[Commentary goes here]
+
+
+### Fit the demographic random forest income prediction model.
+
+For our fourth model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic random forest predicted income using sex, age, and race - and an additional random effect - a by-participant random slope for demographic random forest predicted income (something like (1 + random_forest_demographic_income | participant)).
+
+Save this model to demographic_rf_income.
+
+Note that this model should use the exact same rows of data as we used for the previous three models.
+
+
+Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+```{r}
+demographic_rf_income <- lmer(ladder_now_scale ~ 
+                                        (1+income_usd_scale|fips_code) + 
+                                        (1+scale(rf.predictions_scale)|fips_code) +
+                                
+                                         income_usd_scale +
+                                         scale(rf.predictions_scale) +
+                                         
+                                         education +
+                                         race +
+                                         sex +
+                                         employment_all +
+                                         married +
+                                         age_scale +
+                                         year +
+                                         total_pop_county_scale +
+                                         median_home_value_county_scale +
+                                         land_area_2010_scale +
+                                         physicians_scale,
+                                       REML = F,
+                                       control = lmerControl(optimizer = "bobyqa"),
+                                       data = modeling_df)
+
+summary(demographic_rf_income)
+
+write_csv(broom.mixed::tidy(demographic_rf_income),"demographic_rf_income_model.csv")
+write_csv(data.frame(capture.output(demographic_rf_income)),"demographic_rf_income_model_full.csv")
+
+# tt <- getME(demographic_rf_income,"theta")
+# ll <- getME(demographic_rf_income,"lower")
+# min(tt[ll==0])
+```
+
+[Commentary goes here]
+
+### Model comparison
+
+Next, we will conduct a series of model comparison tests using the anova() function to conduct Likelihood Ratio Tests comparing each of our models with comparison income values to our baseline models, so three model comparison tests. 
+
+Please comment on the results of the test (e.g., do the models with comparison income values provide a significantly better fit to the data)?
+
+####Baseline and geographic median comparison
+```{r}
+anova(baseline_model, geographic_median_income_model)
+```
+
+[Commentary goes here]
+
+####Baseline and demographic median income
+```{r}
+anova(baseline_model, demographic_median_income_model)
+```
+
+[Commentary goes here]
+
+####Baseline and rf demographic predictions
+```{r}
+anova(baseline_model, demographic_rf_income)
+```
+
+[Commentary goes here]
+
+
+Next, please comment on the AIC/BIC values of the various models with income comparison values. Which model provides the best results?
+*the demographic_rf_income model produces the best results with the lowest AIC and BIC values.
+
+### Produce regression tables
+
+Use the stargazer package (https://cran.r-project.org/web/packages/stargazer/vignettes/stargazer.pdf) or some other package of your choice to produce a regression table that showcases the results of the four models we fit above.
+
+```{r}
+stargazer(baseline_model, 
+          geographic_median_income_model, 
+          demographic_median_income_model, 
+          demographic_rf_income,
+          type = "html",
+          model.names = T, #outputs "linear mixed effects" at the top of the table
+          dep.var.labels = "Scaled Cantril Ladder",
+          #covariate.labels = c("Scaled own income",
+          #                     "High school graduate","Vocational program after high school",
+          #                     "Some college but no degree","Two-year associate degree",
+          #                    "Four-year bachelor's degree"
+          #                     ),
+          out = "gallup_daily_models_summary.htm")
+
+#Note: I didn't set all of the variable names here with covariate.labels
+#maybe we can create a table that explains what each variable name refers to so that the ordering of factors are more clear? directly putting them in seems confusing to me
+```
+
+
+### Visualizations
+
+Next, take a stab at producing some visualizations for the results obtained in the above models. As we've discussed, this is a unique analysis in that the visualization of our key effect (comparison income) would just be a line. Are there some other types of compelling plots you could produce? For instance, could you produce a plot of the magnitude of the comparison income effect in comparison to some other predictors that people might think would have a strong relationship with well-being / life satisfaction?
+
+```{r}
+# Trying to explore ways to output p-values here, but perhaps likelihood ratios/power is what we should focus on as well?
+library(broom)
+model1 <- tidy(baseline_model)
+model2 <- tidy(geographic_median_income_model)
+model3 <- tidy(demographic_median_income_model)
+model4 <- tidy(demographic_rf_income)
+
+# confint(baseline_model, level = 0.95) %>% data.frame()
+# confint(geographic_median_income_model, level = 0.95)
+# confint(demographic_median_income_model, level = 0.95)
+# confint(demographic_rf_income, level = 0.95)
+
+bind_cols(model2, model3, model4) %>% 
+  rename(Variable = term, 
+         Coefficient = estimate,
+         SE = std.error)
+
+model_results <- bind_rows(model2, model3, model4) %>%
+  rename(Variable = term,
+         Coef = estimate,
+         SE = std.error) %>%
+  select(Variable, Coef, SE)
+model_results <- model_results[c(3,35,67),]
+model_results
+
+ggplot(model_results, aes(x = Variable, y = Coef)) +
+        geom_hline(yintercept = -0.223, colour = gray(1/2), lty = 2) +
+        geom_point(aes(x = Variable,
+                       y = Coef,
+                       #shape = Variable
+                       size = -Coef,
+                       color= Variable)) + 
+        geom_linerange(aes(x = Variable, ymin = 0, ymax = 0),lwd = 1) +
+        geom_linerange(aes(x = Variable, ymin = 0, ymax = 0),lwd = 1/2) + 
+        ggtitle("Gallup Daily - comparison income and SWB coef magnitude") +
+  coord_flip()
+```
+
