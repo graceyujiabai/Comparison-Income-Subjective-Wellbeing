@@ -40,8 +40,6 @@ str(gallup_world_clean)
 ```
 
 
-Feel free to add in any additional chunks of code that you think might be helpful for the analysis, such as recoding any variables that may have been converted to an inappropriate datatype when you loaded the data. This should only include things that come before the primary analysis. Make sure to include a heading with three pound signs / hash tags to appropriately label what the chunk of code is doing.
-
 ### Delete labels
 ```{r}
 labels <- val_labels(gallup_world_clean)
@@ -53,7 +51,7 @@ head(gw.full)
 ### Filter for United States and for NAs; clean data
 
 #### filter data to be US only
-Filter the data so that our dataset exclusively focuses on the United States. Filter out NA's for any variables that we will use in our regression analysis. See below for the variables we include in the regression analysis.
+Filter the data so that our dataset exclusively focuses on the United States. Filter out NA's for any variables that we will use in our regression analysis.
 ```{r}
 #filter data for US only
 gw.US <- filter(gw.full, country == "United States")
@@ -139,11 +137,6 @@ The predictors will include the following participant-level variables:
 This model should also include random effects:
 - A random intercept for country and a by-country random slope for own income (something like (1 + income_usd_scale | country))
 
-I also use the following arguments for REML = FALSE (for ease of model comparison) and then for control = lmerControl(optimizer = "bobyqa") for faster model fitting.
-
-Save the model to baseline_model. Please comment on the results of the model. Which of our key predictors (own income) are significant and in what direction. Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
-
-*smaller data size-->other variables are explianing the variance of own income on SWB
 ```{r}
 head(gw.US)
 # baseline_model <- lm(ladder_now_scale ~ +
@@ -189,10 +182,6 @@ Observation from all 4 models: age always significantly predicts SWB. For every 
 For our second model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic median income using sex and age - and an additional random effect - a by-country random slope for demographic median income (something like (1 + demographic_median_income_scale | country)).
 
 Save this model to demographic_median_income.
-
-Note that this model should use the exact same rows of data as we used for the previous model.
-
-Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
 
 ```{r}
 calculate_median_income_sa <- function(df){
@@ -263,7 +252,7 @@ demographic_median_income <- lm(scale(ladder_now) ~
                          age_scale +
                          year,
                      data = gw.US
-    #nn) #same as above--used nn with Daniel's data with all of the measures produced
+
 )
 
 summary(demographic_median_income)
@@ -278,9 +267,6 @@ For our third model, we will use the same outcome and all of the same predictors
 Save this model to demographic_rf_income.
 
 Note that this model should use the exact same rows of data as we used for the previous three models.
-
-
-Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
 
 #### Random forest predictions
 ```{r}
@@ -364,9 +350,6 @@ Save this model to demographic_gbm_income.
 
 Note that this model should use the exact same rows of data as we used for the previous three models.
 
-
-Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
-
 #### Run gbm and join results
 ```{r}
 #use dataframe df.train created earlier
@@ -441,8 +424,6 @@ Gradient boosted machine predicted income significantly predicted SWB, b = -0.76
 ### Model comparison
 
 Next, we will conduct a series of model comparison tests using the anova() function to conduct Likelihood Ratio Tests comparing each of our models with comparison income values to our baseline models, so three model comparison tests. 
-
-Please comment on the results of the test (e.g., do the models with comparison income values provide a significantly better fit to the data)?
 
 ```{r}
 anova(baseline_model, demographic_median_income)
