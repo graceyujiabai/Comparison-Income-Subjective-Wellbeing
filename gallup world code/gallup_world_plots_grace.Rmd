@@ -1,0 +1,379 @@
+---
+title: "gallup_world_relative_income_analysis_grace"
+author: "Yujia Bai (Grace)"
+date: '2022-04-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#file path: "G:/My Drive/projects/income_comparisons/code/gallup_world/gallup_world_relative_income_plots_grace.Rmd
+```
+
+## Plotting
+```{r}
+#rename variables
+country_level_models <- 
+  country_level_models %>% 
+  dplyr::rename(comp_income_effect = `scale(mi_value)`)
+
+final_df <- 
+  final_df %>% 
+  dplyr::rename(comp_income_effect = `scale(mi_value)`)
+```
+
+
+### Stargazer plot for regression analysis
+#### demographic median income
+```{r}
+#done in regression_analysis_gallup_world_US_grace
+```
+
+
+### Gallup World model fits
+- summary stats
+
+- histogram for coefs
+
+#### demographic median income
+```{r}
+#function for plotting histograms
+# plot_data_column = function (data, column) {
+#     ggplot(data, aes_string(x = column)) +
+#         geom_histogram(fill = "darkgrey", bins=50) +
+#         xlab(column)
+# }
+
+
+#plot comparison income coef
+plot_1 <- country_level_models %>% 
+  filter(mi_var == "demographic_median_income") %>% 
+  ggplot(aes(comp_income_effect)) +
+  geom_histogram(bins = 50) +
+  geom_vline(xintercept = -0.038) +
+  xlab("Relative income effect") +
+  ggtitle("Demographic median comparison income")+
+  theme_bw()
+
+ ggsave("plot_1.png")
+
+#plot other coefs
+# dem_med_income_plot <- lapply(colnames(dem_med_income), 
+#                               plot_data_column, 
+#                               data = dem_med_income)
+# 
+# dem_med_income_plot
+```
+
+
+```{r}
+dem_med_income <- filter(country_level_models, 
+                         mi_var == "demographic_median_income") %>%
+  select(c(1,4:20)) %>% na.omit %>% as.data.frame()
+
+#summary stats
+summ1 <- lapply(dem_med_income, function(x) {
+   paste0( "[",
+     # " (95% CI: ",
+   paste(round(sort(mean(x) + c(1.96, -1.96) * sd(x)/sqrt(length(x))), 3),
+         collapse = ", "), "]")
+ } ) %>%
+  rbind(summarise_all(dem_med_income, sd)) %>%
+  rbind(summarise_all(dem_med_income, mean)) %>%
+  rbind(summarise_all(dem_med_income, median)) %>%
+  as.data.frame()
+
+rownames(summ1) <- c("95%CI","SD","Mean","Median")
+summ1
+write_csv(summ1, "Gallup World_dem_median_models_summary.csv")
+
+#order relative income effects
+dem_med_income[order(dem_med_income$comp_income_effect),] %>% select(c(18),everything())
+```
+
+
+#### demographic rf income
+```{r}
+## for demographic rf income
+
+#plot comparison income coef
+plot_2 <- country_level_models %>% 
+  filter(mi_var == "demographic_rf_income") %>% 
+  ggplot(aes(comp_income_effect)) +
+  geom_histogram(bins = 50) +
+  geom_vline(xintercept = -0.0142) +
+  xlab("Relative income effect") +
+  ggtitle("Demographic random forest predicted income")+
+  theme_bw()
+
+ ggsave("plot_2.png")
+ 
+
+#plot other coefs
+# dem_rf_income_plot <- lapply(colnames(dem_rf_income), 
+#                               plot_data_column, 
+#                               data = dem_rf_income)
+# 
+# dem_med_income_plot
+ 
+ 
+#summary stats
+dem_rf_income <- filter(country_level_models, mi_var == "demographic_rf_income") %>%
+  select(c(1,4:20)) %>% na.omit() %>% as.data.frame()
+
+summ2 <- lapply(dem_rf_income, function(x) {
+   paste0( "[",
+     # " (95% CI: ",
+   paste(round(sort(mean(x) + c(1.96, -1.96) * sd(x)/sqrt(length(x))), 3),
+         collapse = ", "), "]")
+ } ) %>%
+  rbind(summarise_all(dem_rf_income, sd)) %>%
+  rbind(summarise_all(dem_rf_income, mean)) %>%
+  rbind(summarise_all(dem_rf_income, median)) %>%
+  as.data.frame()
+
+rownames(summ2) <- c("95%CI","SD","Mean","Median")
+summ2
+write_csv(summ2, "Gallup World_dem_rf_models_summary.csv")
+
+dem_rf_income[order(dem_rf_income$comp_income_effect),] %>% select(c(18),everything())
+```
+
+### Results correlating comparison income coefficient with secondary data variables
+
+The standardized coefficient (correlation coefficient)
+
+95% confidence interval around the coefficient
+
+The t-statistic
+
+P-value
+
+--------------------------------------------------------------------------------------------------
+Each row will showcase the relationship between comparison income and one variable from the secondary datasets:
+
+GDP - calculate the average from 2003 to 2007
+Mean / median income at the country-level
+Gini Index
+Change in GDP average of 1988 to 1992 compared to 2003 to 2007
+6 Hoftstede variables
+Variables from the WVS
+
+#### demographic median income
+vars: scale(income_usd_log); gini; hof; all wvs
+```{r}
+final_df
+```
+
+##### create dataframe
+```{r}
+#use new gdp and gini data
+#create dataframe
+dem_med_income0 <- filter(final_df, mi_var == "demographic_median_income")
+
+dem_med_income <- select(dem_med_income0, c(1, 20, 21:26, 41,46, 47:60)) %>%
+  mutate(country = as.factor(country)) %>%
+  mutate_if(is.character, as.double)
+
+head(dem_med_income)
+```
+
+#####summary stats
+```{r}
+#summary stats
+#cannot run with country in df
+lapply(dem_med_income, function(x) {
+   paste0( "[",
+     # " (95% CI: ",
+   paste(round(sort(mean(x) + c(1.96, -1.96) * sd(x)/sqrt(length(x))), 2),
+         collapse = ", "), "]")
+ } ) %>%
+  rbind(summarise_all(dem_med_income, sd)) %>%
+  rbind(summarise_all(dem_med_income, mean)) %>%
+  rbind(summarise_all(dem_med_income, median))
+
+
+#calculate avg GDP from 2003 - 2007: produces NAs
+# dem_med_income$gdp_avg <- mean(sum(dem_med_income[,24:28]))
+#if lose data > 1/3: make interval wider: 2006~2018
+```
+
+
+```{r}
+#correlation with gdp and gini were not significant
+library(Hmisc)
+corr1 <- rcorr(as.matrix(dem_med_income),type="pearson") %>% as.list()
+corr1 <- data.frame(corr1$P)
+corr1 # Significant: idv;mas;Q150
+
+
+dem_med_income <- dem_med_income[,c("comp_income_effect","idv","mas","Q150")]
+corr_dem_med_income <- rcorr(as.matrix(dem_med_income),type="pearson") %>% as.list()
+corr_dem_med_income <- corr_dem_med_income$P%>%as.data.frame()
+
+
+corr_dem_med_income <- corr_dem_med_income$comp_income_effect%>%as.data.frame()
+rownames(corr_dem_med_income)<-c("comp_income_effect","idv","mas","Q150")
+colnames(corr_dem_med_income) <- "comp_income_effect_pval"
+corr_dem_med_income
+
+```
+
+
+#### Scatterplots
+```{r}
+## Scatterplots: for age_scale and gender2 and Q150
+# source("G:/My Drive/projects/income_comparisons/code/gallup_world/fdr.R")
+# fdr_cut(corr_dem_med_income$comp_income_effect_pval, 0.01, plotit = T) #cutoff is 0.002
+
+# lm1 <- lm(dem_med_income$comp_income_effect ~ dem_med_income$idv)
+# plot(dem_med_income$comp_income_effect ~ dem_med_income$idv)
+# abline(lm1)
+# 
+# lm2 <- lm(dem_med_income$comp_income_effect ~ dem_med_income$mas)
+# plot(dem_med_income$comp_income_effect ~ dem_med_income$mas)
+# abline(lm2)
+# 
+# lm_3 <- lm(dem_med_income$comp_income_effect ~ dem_med_income$Q150)
+# plot(dem_med_income$comp_income_effect ~ dem_med_income$Q150)
+# abline(lm_3)
+
+#use ggplot
+dem_med_idv <- ggplot(dem_med_income,aes(idv, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Individualism vs. Collectivism") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_med_idv
+ggsave("dem_med_idv.png")
+
+dem_med_mas <- ggplot(dem_med_income,aes(mas, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Masculinity vs. Femininity") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_med_mas
+ggsave("dem_med_mas.png")
+
+dem_med_free_secure <- ggplot(dem_med_income,aes(Q150, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Freedom vs. Security") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+  #theme(aspect.ratio = 3/4)
+dem_med_free_secure
+ggsave("dem_med_free_secure.png", width = 12, height = 4)
+
+
+library(gridExtra)
+gridExtra::grid.arrange(dem_med_idv,dem_med_mas,dem_med_free_secure, nrow = 1)
+```
+Significant:
+age;educ2;employmen4&5;gender2;idv;mas;Q150
+
+#### demographic rf income
+```{r}
+dem_rf_income <- filter(final_df, 
+                         mi_var == "demographic_rf_income") %>% 
+  select(c(1, 20, 21:26, 41,46, 47:60)) %>%
+  mutate(country = as.factor(country)) %>%
+  mutate_if(is.character, as.double)
+
+head(dem_rf_income)
+
+#summary stats
+#cannot run with country in df; same thing in dem_med_income
+lapply(select(dem_rf_income), function(x) {
+   paste0( "[",
+     # " (95% CI: ",
+   paste(round(sort(mean(x) + c(1.96, -1.96) * sd(x)/sqrt(length(x))), 2),
+         collapse = ", "), "]")
+ } ) %>%
+  rbind(summarise_all(dem_rf_income, sd)) %>%
+  rbind(summarise_all(dem_rf_income, mean)) %>%
+  rbind(summarise_all(dem_rf_income, median))
+```
+
+
+```{r}
+library(Hmisc)
+corr2 <- rcorr(as.matrix(select(dem_rf_income,-c(1))),type="pearson") %>% as.list()
+corr2 <- data.frame(corr2$P)
+corr2
+
+#significant vars
+dem_rf_income <- dem_rf_income[,c("comp_income_effect","pdi","idv","ivr","gdp","Q50")]
+
+
+corr_dem_rf_income <- rcorr(as.matrix(dem_rf_income),type="pearson") %>% as.list()
+corr_dem_rf_income <- corr_dem_rf_income$P %>% as.data.frame()
+corr_dem_rf_income <- corr_dem_rf_income$comp_income_effect%>%as.data.frame()
+
+rownames(corr_dem_rf_income) <-c("comp_income_effect","pdi","idv","ivr","gdp","Q50")
+
+colnames(corr_dem_rf_income) <- "comp_income_effect_pval"
+corr_dem_rf_income
+```
+
+#### Scatterplots
+```{r}
+## Scatterplots: for age_scale, gender2, and  marital_status2
+#fdr_cut(corr_dem_rf_income$comp_income_effect_pval, 0.01, plotit = T) #cutoff is 0.001
+
+lm4 <- lm(dem_rf_income$comp_income_effect ~ dem_rf_income$ivr)
+plot(dem_rf_income$comp_income_effect ~ dem_rf_income$ivr)
+abline(lm_age_scale)
+
+lm5 <- lm(dem_rf_income$comp_income_effect ~ dem_rf_income$pdi)
+plot(dem_rf_income$comp_income_effect ~ dem_rf_income$pdi)
+abline(lm5)
+
+lm6 <-  lm(dem_rf_income$comp_income_effect ~ dem_rf_income$idv)
+plot(dem_rf_income$comp_income_effect ~ dem_rf_income$idv)
+abline(lm6)
+
+
+#use ggplot
+dem_rf_ivr <- ggplot(dem_rf_income,aes(ivr, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Indulgence") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_rf_ivr
+ggsave("dem_rf_ivr.png")
+
+
+dem_rf_pdi <- ggplot(dem_rf_income,aes(pdi, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Power Distance") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_rf_pdi
+ggsave("dem_rf_pdi.png")
+
+
+dem_rf_idv <- ggplot(dem_rf_income,aes(idv, comp_income_effect, label = country))+
+  geom_text() +
+  xlab("Individualism vs. Collectivism") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_rf_idv
+ggsave("dem_rf_idv.png")
+
+
+dem_rf_gdp <- ggplot(dem_rf_income,aes(log(gdp), comp_income_effect, label = country))+
+  geom_text() +
+  xlab("log(Averge GDP from 2006 to 2018)") +
+  ylab("Relative income effect") +
+  stat_smooth(method="lm", se=T)
+dem_rf_gdp
+ggsave("dem_rf_gdp.png")
+
+library(gridExtra)
+gridExtra::grid.arrange(dem_rf_idv, dem_rf_pdi, dem_rf_ivr, dem_rf_gdp, nrow=2)
+```
+
+siginificant: "comp_income_effect","age_scale","gender2","household_size_scale","marital_status2","marital_status8","pdi","idv","uai","ivr" (old results; didn't delete just for the record)

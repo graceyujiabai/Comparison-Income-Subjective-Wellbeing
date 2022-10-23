@@ -1,0 +1,594 @@
+---
+title: "Gallup World - Primary Regression Analysis - United States"
+author: "Daniel O'Leary; Grace Bai"
+date: "4/9/2022"
+output: html_document
+---
+keep this version.
+
+## Setup
+
+### Load Libraries
+
+```{r}
+# Load requisite software libraries
+library(tidyverse)
+library(haven)
+library(ranger)
+library(gbm)
+library(labelled)
+library(stargazer)
+library(broom)
+```
+
+
+### Load Data
+
+```{r}
+# Load the cleaned data for all years combined
+gallup_world_clean <- readRDS("gallup_world_clean.rds")
+```
+
+
+## Preliminaries
+
+### Glimpse Data
+
+```{r}
+# Take a look at the dataframe using glimpse() and head() to make sure there aren't any issues 
+str(gallup_world_clean)
+```
+
+
+Feel free to add in any additional chunks of code that you think might be helpful for the analysis, such as recoding any variables that may have been converted to an inappropriate datatype when you loaded the data. This should only include things that come before the primary analysis. Make sure to include a heading with three pound signs / hash tags to appropriately label what the chunk of code is doing.
+
+### Delete labels
+```{r}
+labels <- val_labels(gallup_world_clean)
+gw.full <- remove_labels(gallup_world_clean)
+head(gw.full)
+```
+
+
+### Filter for United States and for NAs; clean data
+
+#### filter data to be US only
+Filter the data so that our dataset exclusively focuses on the United States. Filter out NA's for any variables that we will use in our regression analysis. See below for the variables we include in the regression analysis.
+```{r}
+#filter data for US only
+gw.US <- filter(gw.full, country == "United States")
+head(gw.US)
+```
+#### select desired variables & filter NAs
+```{r}
+#select variables
+gw.US <- select(gw.US, c(WPID, year, income_usd, income_usd_scale, education, age, gender,employment, marital_status, ladder_now, weight))
+head(gw.US)
+
+#filter NAs
+gw.US <- gw.US %>%
+  dplyr::select(
+    WPID, year, income_usd, income_usd_scale, education, age, gender, 
+                         employment, marital_status, ladder_now,
+                         weight) %>%
+  filter_at(
+    vars(WPID, year, income_usd, income_usd_scale, education, age, gender, 
+                         employment, marital_status, ladder_now,
+                         weight),
+    all_vars(!is.na(.))
+  )
+
+
+#check if there still are NA values
+for (i in 1:ncol(gw.US)){
+  na <- sum(is.na(gw.US[,i]))
+  print(na)
+}
+
+head(gw.US)
+```
+
+#### change data type, & add columns
+```{r}
+#check levels of all colums
+sapply(gw.US, levels)
+
+#change data types for variables that are supposed to be factors
+gw.US <- gw.US %>% mutate_if(is.integer, as.factor)
+
+#mutate gender to be 0 and 1
+gw.US <- mutate(gw.US, gender = as.factor(ifelse(gender == 2, 1, 0)))
+
+#change levels for marital status
+#use Boolean operator!!!
+gw.US <- mutate(gw.US, marital_status = as.factor(ifelse(marital_status %in% c(1,2,3,4,5), gw.US$marital_status, 6)))
+
+#scale outcome: cantril ladder; also rename
+#gw.US <- mutate(gw.US, ind_ladder_now = scale(ind_ladder_now)) %>% rename(ind_ladder_now_scale = ind_ladder_now)
+gw.US$ladder_now_scale <- scale(gw.US$ladder_now)
+
+#scale age; add age_scale column
+gw.US$age_scale <- scale(gw.US$age)
+
+print(gw.US)
+sapply(gw.US, levels)
+```
+
+
+### Count Observations
+
+How many observations are we left with after the above filtering?
+#### We are left with 10908 variables
+
+
+## Analysis
+
+### Fit the Baseline Regression Model
+
+For our first model, we will fit a mixed effects linear regression model where the outcome is participants' Cantril Ladder ratings of their current life satisfaction. 
+
+The predictors will include the following participant-level variables:
+- Own income (converted to USD and scaled)
+- Education (coded as a factor variable)
+- Sex
+- Employment status
+- Marital status
+- Age
+- Year of data collection
+
+This model should also include random effects:
+- A random intercept for country and a by-country random slope for own income (something like (1 + income_usd_scale | country))
+
+I also use the following arguments for REML = FALSE (for ease of model comparison) and then for control = lmerControl(optimizer = "bobyqa") for faster model fitting.
+
+Save the model to baseline_model. Please comment on the results of the model. Which of our key predictors (own income) are significant and in what direction. Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+*smaller data size-->other variables are explianing the variance of own income on SWB
+```{r}
+head(gw.US)
+# baseline_model <- lm(ladder_now_scale ~ +
+#                          
+#                          scale(log(income_usd+0.1)) + #income was reported in forced buckets--
+#                                                       #distribution is very right skewed--
+#                                                       #log transform is common if you do not have the buckets
+#                          
+#                          gender +
+#                          education +
+#                          employment +
+#                          marital_status +
+#                          age_scale +
+#                          year,
+#                          data = gw.US
+#                        )
+
+baseline_model <- lm(scale(ladder_now) ~
+  #ladder_now_scale ~
+
+                         #income_usd_log_scale +
+                          log(income_usd_scale)+
+
+                         gender +
+                         education +
+                         employment +
+                         marital_status +
+                         age_scale +
+                         year,
+                     data = gw.US) #you used "nn" when editing last time--probably from Daniel's code
+
+summary(baseline_model)
+
+hist(gw.US$income_usd)
+filter(gw.US, gw.US$income_usd == 0) %>% dim()
+```
+
+Own income significantly predicted SWB (b = ###, SE = ###, p < .001).
+Observation from all 4 models: age always significantly predicts SWB. For every one unit increase in age, SWB would be expected to increase by 4 to 5 percent (p < 0.001; SE runs different for different models).
+
+### Fit the demographic median income model.
+
+For our second model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic median income using sex and age - and an additional random effect - a by-country random slope for demographic median income (something like (1 + demographic_median_income_scale | country)).
+
+Save this model to demographic_median_income.
+
+Note that this model should use the exact same rows of data as we used for the previous model.
+
+Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+```{r}
+calculate_median_income_sa <- function(df){
+  med_inc_gallup <-
+    df %>% 
+    dplyr::select(
+      income_usd,
+      age,
+      gender,
+      weight
+    ) %>% 
+    filter_all(all_vars(!is.na(.))) %>% 
+    mutate(
+      age_dec = round(age, digits = -1)
+    ) %>% 
+    group_by(
+      age_dec,
+      gender
+    ) %>% 
+    summarise(
+      mean_income_demo_sa = matrixStats::weightedMean(income_usd, w = weight, na.rm = TRUE),
+      median_income_demo_sa = matrixStats::weightedMedian(income_usd, w = weight, na.rm = TRUE)
+      #gini_demo_sa = reldist::gini(income, w = weight)
+    ) %>% 
+    ungroup()
+  
+  df <-
+    df %>% 
+    mutate(
+      age_dec = round(age, digits = -1)
+    ) %>% 
+    left_join(
+      med_inc_gallup,
+      by = c("gender", "age_dec")
+    )
+  
+  return(df)
+}
+
+gw.US <- calculate_median_income_sa(gw.US) 
+head(gw.US)
+
+# demographic_median_income <- lm(ladder_now_scale ~ 
+#                          
+#                          income_usd_scale +
+#                          scale(median_income_demo_sa) + #scaled the variable inside model
+#                          
+#                          gender +
+#                          education +
+#                          employment +
+#                          marital_status +
+#                          scale(age) +
+#                          year,
+#                      data = gw.US)
+
+demographic_median_income <- lm(scale(ladder_now) ~
+  #ladder_now_scale ~
+
+                         #income_usd_log_scale +
+                          log(income_usd_scale) +
+                         #demographic_median_income_scale +
+                          scale(median_income_demo_sa) +
+
+                         gender +
+                         education +
+                         employment +
+                         marital_status +
+                         age_scale +
+                         year,
+                     data = gw.US
+    #nn) #same as above--used nn with Daniel's data with all of the measures produced
+)
+
+summary(demographic_median_income)
+```
+
+The demographic comparison income variable significantly predicted SWB (b = ###, SE = ###, p < 0.001). Specifically, demographic comparison income and SWB were negatively correlated--a one unit increase in demographic comparison income is expected to result in an 8% decrease in SWB. Demographic comparison income produced a larger coefficient than own income in US dollars.
+
+### Fit the demographic random forest income prediction model.
+
+For our third model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic random forest predicted income using sex and age - and an additional random effect - a by-country random slope for demographic random forest predicted income (something like (1 + demographic_rf_income_scale | country)).
+
+Save this model to demographic_rf_income.
+
+Note that this model should use the exact same rows of data as we used for the previous three models.
+
+
+Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+#### Random forest predictions
+```{r}
+#create training dataframe
+df.train <- gw.US %>% dplyr::select(age_scale, 
+                                     gender,
+                                     income_usd_scale,
+                                     year
+                                     )
+head(df.train)
+summary(df.train)
+
+set.seed(123)
+#run random forest
+rf <-
+  ranger(
+    income_usd_scale ~ ., #used to be raw_income
+    data = df.train,
+    #df.train[complete.cases(df.train),], 
+    case.weights = gw.US$weight,
+    num.trees = 500,
+    mtry = 2,
+    min.node.size = 10,
+    num.threads = 6
+  ) 
+
+#join rf predictions to original df
+gw.US <- cbind(gw.US, data.frame(rf$predictions))
+# gw.US <- select(rf.df.final, c(WPID, rf.predictions)) %>% left_join(gw.US, by = "WPID")
+
+#rename rf predictions
+gw.US <- dplyr::rename(gw.US, rf.predictions_scale = rf.predictions)
+
+#check correlation
+cor(gw.US$rf.predictions_scale, gw.US$income_usd_scale) #correlation looks weird
+```
+
+#### Fit demographic rf income model
+```{r}
+# demographic_rf_income <- lm(ladder_now_scale ~
+# 
+#                          income_usd_scale +
+#                          rf.predictions_scale + #should be scaled again
+# 
+#                          gender +
+#                          education +
+#                          employment +
+#                          marital_status +
+#                          age_scale +
+#                          year,
+#                      data = gw.US)
+
+#used the random forest results generated by Daniel's code below
+#run daniel's code first to obtain the new predictions
+#nn <- gallup_world_clean; omit NAs and select only country == USA
+demographic_rf_income <- lm(ladder_now_scale ~
+
+                         income_usd_log_scale +
+                         scale(demographic_rf_income_scale) + #should be scaled again
+
+                         gender +
+                         education +
+                         employment +
+                         marital_status +
+                         age_scale +
+                         year,
+                     data = nn)
+
+
+summary(demographic_rf_income)
+```
+
+Neither own income (b = 0.002, SE = 0.006, p = 0.719) or demographic random forest (b = -0.109, SE = 0.075, p = 0.146) predicted income was significant.
+
+
+### Fit the demographic gradient boosted machine income prediction model.
+
+For our fourth model, we will use the same outcome and all of the same predictors as we did for the baseline model, but we will add one predictor - demographic gradient boosted machine predicted income using sex and age - and an additional random effect - a by-country random slope for demographic gradient boosted machine predicted income (something like (1 + demographic_gbm_income_scale | country)).
+
+Save this model to demographic_gbm_income.
+
+Note that this model should use the exact same rows of data as we used for the previous three models.
+
+
+Please comment on the results of the model. Which of our key predictors (income and comparison income) are significant and in what direction. Which predictor has a larger magnitude effect?  Write out the results as you would in an academic paper (e.g., APA format). Are there any other notable results?
+
+#### Run gbm and join results
+```{r}
+#use dataframe df.train created earlier
+#run gbm
+
+set.seed(123)
+gbm <-
+  gbm(
+    income_usd_scale ~ .,
+    distribution = "gaussian",
+    weights = gw.US$weight,
+    n.trees = 500,
+    shrinkage = 0.01,
+    interaction.depth = 2,
+    n.minobsinnode = 500,
+    cv.folds = 10,
+    data = df.train
+  ) 
+
+df.train$income_usd <- gw.US$income_usd
+df.train$age <- gw.US$age
+
+
+gbm <-
+  gbm(
+    income_usd ~ age+gender+year,
+    distribution = "gaussian",
+    weights = gw.US$weight,
+    n.trees = 500,
+    shrinkage = 0.01,
+    interaction.depth = 2,
+    n.minobsinnode = 500,
+    cv.folds = 10,
+    data = df.train
+  ) 
+
+#join predictions to original df
+gw.US <- cbind(gw.US, data.frame(gbm$fit))
+# gw.US <- select(gbm.df.final, c(WPID, gbm.fit)) %>% left_join(gw.US, by = "WPID")
+
+#rename columns again
+gw.US <- rename(gw.US, gbm.fit_new = gbm.fit)
+
+#check correlation
+cor(gw.US$gbm.fit_new, gw.US$income_usd) #slightly better than rf
+```
+
+#### Fit GBM Model
+*why ml models might be better predictors of income in US daily than GW
+```{r}
+#fit model
+demographic_gbm_income <- lm(ind_ladder_now_scale ~ +
+                         
+                         income_usd_scale +
+                         scale(gbm.fit_new) +
+                         
+                         gender +
+                         education +
+                         employment +
+                         marital_status +
+                         age_scale +
+                         year,
+                     data = gw.US)
+
+summary(demographic_gbm_income)
+
+```
+
+Gradient boosted machine predicted income significantly predicted SWB, b = -0.764, SE = 0.383, p = 0.047. For every one unit increase in gradient boosted machine predicted comparison income, we expect a 76% decrease in SWB.
+
+
+### Model comparison
+
+Next, we will conduct a series of model comparison tests using the anova() function to conduct Likelihood Ratio Tests comparing each of our models with comparison income values to our baseline models, so three model comparison tests. 
+
+Please comment on the results of the test (e.g., do the models with comparison income values provide a significantly better fit to the data)?
+
+```{r}
+anova(baseline_model, demographic_median_income)
+```
+
+The demographic median comparison income model provides a better fit than the baseline model (p < 0.001), reducing the RSS by about 40.
+
+
+```{r}
+anova(baseline_model, demographic_rf_income)
+```
+
+The random forest predicted comparison income model provided a similar fit to the baseline model, producing a similar RSS and p = 0.146.
+
+
+```{r}
+anova(baseline_model, demographic_gbm_income)
+```
+
+The gradient boosted machine predicted income model provides a slightly better fit than the baseline model with RSS = 10816 and p = 0.047.
+
+### AIC and BIC
+Next, please comment on the AIC/BIC values of the various models with income comparison values. Which model provides the best results?
+```{r}
+print(paste0("---------------AIC values below---------------"))
+extractAIC(baseline_model, k = 2)
+extractAIC(demographic_median_income, k = 2)
+extractAIC(demographic_rf_income, k = 2)
+extractAIC(demographic_gbm_income, k = 2)
+print(paste0("---------------BIC values below---------------"))
+extractAIC(baseline_model, k = log(17))
+extractAIC(demographic_median_income, k = log(18))
+extractAIC(demographic_rf_income, k = log(18))
+extractAIC(demographic_gbm_income, k = log(18))
+```
+The demographic median comparison income model produced the best results with the lowest AIC and BIC values (AIC = -90.23, BIC = -74.21)
+
+### Produce regression tables
+
+Use the stargazer package (https://cran.r-project.org/web/packages/stargazer/vignettes/stargazer.pdf) or some other package of your choice to produce a regression table that showcases the results of the four models we fit above.
+
+```{r}
+library(stargazer)
+stargazer(baseline_model, 
+          demographic_median_income, 
+          demographic_rf_income,
+          #demographic_gbm_income,
+          type = "html",
+          model.names = T, #outputs "linear mixed effects" at the top of the table
+          dep.var.labels = "Scaled Cantril Ladder",
+          #covariate.labels = c("Scaled own income",
+          #                     "High school graduate","Vocational program after high school",
+          #                     "Some college but no degree","Two-year associate degree",
+          #                    "Four-year bachelor's degree"
+          #                     ),
+          out = "gallup_world_US_models_summary.htm")
+
+stargazer(demographic_median_income, 
+          type = "html",
+          model.names = T, #outputs "linear mixed effects" at the top of the table
+          dep.var.labels = "Scaled Cantril Ladder",
+          #covariate.labels = c("Scaled own income",
+          #                     "High school graduate","Vocational program after high school",
+          #                     "Some college but no degree","Two-year associate degree",
+          #                    "Four-year bachelor's degree"
+          #                     ),
+          out = "gallup_world_US_dem_median.htm")
+
+stargazer(demographic_rf_income,
+          type = "html",
+          model.names = T, #outputs "linear mixed effects" at the top of the table
+          dep.var.labels = "Scaled Cantril Ladder",
+          #covariate.labels = c("Scaled own income",
+          #                     "High school graduate","Vocational program after high school",
+          #                     "Some college but no degree","Two-year associate degree",
+          #                    "Four-year bachelor's degree"
+          #                     ),
+          out = "gallup_world_US_dem_rf.htm")
+```
+
+
+### Visualizations
+
+Next, take a stab at producing some visualizations for the results obtained in the above models. As we've discussed, this is a unique analysis in that the visualization of our key effect (comparison income) would just be a line. Are there some other types of compelling plots you could produce? For instance, could you produce a plot of the magnitude of the comparison income effect in comparison to some other predictors that people might think would have a strong relationship with well-being / life satisfaction?
+
+#### With ggplot
+```{r}
+library(broom)
+model1 <- tidy(baseline_model)
+model2 <- tidy(demographic_median_income)
+model3 <- tidy(demographic_rf_income)
+model4 <- tidy(demographic_gbm_income)
+
+model_results <- bind_rows(model2, model3, model4)%>% 
+  rename(Variable = term, 
+         Coefficient = estimate,
+         SE = std.error) %>%
+  select(Variable, Coefficient, SE)
+model_results <- model_results[c(3,21,39),]
+
+# bind_cols(model2, model3, model4) %>% 
+#   rename(Variable = term, 
+#          Coefficient = estimate,
+#          SE = std.error)
+
+ggplot(model_results, aes(x = Variable, y = Coefficient)) +
+        geom_hline(yintercept = coef(baseline_model)[2], colour = gray(1/2), lty = 2) +
+        geom_point(aes(x = Variable,
+                       y = Coefficient,
+                       #shape = Variable
+                       size = -Coefficient,
+                       color= Variable)) + 
+        geom_linerange(aes(x = Variable, ymin = 0, ymax = 0),lwd = 1) +
+        geom_linerange(aes(x = Variable, ymin = 0, ymax = 0),lwd = 1/2) + 
+        ggtitle("Outcome: Gallup World US") +
+  coord_flip()
+
+
+```
+#### With dwplot
+```{r}
+library(dotwhisker)
+library(dplyr)
+
+models <- rbind(broom::tidy(baseline_model) %>% filter(term == "income_usd_scale") 
+                %>% mutate(model = "Baseline model"),
+                
+                broom::tidy(demographic_median_income) %>% filter(term == "scale(median_income_demo_sa)") 
+                %>% mutate(model = "Demographic median income model"),
+                
+                broom::tidy(demographic_rf_income) %>% filter(term == "rf.predictions_scale") 
+                %>% mutate(model = "Demographic random forest income model"),
+                
+                broom::tidy(demographic_gbm_income) %>% filter(term == "gbm.fit_scale") 
+                %>% mutate(model = "Demographic gbm income model"))
+
+# dwplot(list(demographic_median_income,
+#             demographic_rf_income,
+#             demographic_gbm_income),
+#        ci = 0.95)
+
+dwplot(models, ci = 0.95,
+       dot_args = list(size = 4)) +
+  xlab("Coefficient Estimate") + 
+  ylab("Coefficients") +
+  geom_vline(xintercept = 0, colour = "grey60", linetype = 2) +
+  ggtitle("Predicting SWB with relative income: Gallup World US")
+```
+
