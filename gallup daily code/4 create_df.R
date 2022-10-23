@@ -14,7 +14,7 @@ daily.2013 <- munge_data(usdaily.2013)
 daily.2014 <- munge_data(usdaily.2014)
 daily.2015 <- munge_data(usdaily.2015)
 daily.2016 <- munge_data(usdaily.2016)
-daily.2017 <- munge_data(usdaily.2017) #how to make this process more efficient?
+daily.2017 <- munge_data(usdaily.2017) 
 
 
 #select_variable_gb
