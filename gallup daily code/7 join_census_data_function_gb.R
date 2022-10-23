@@ -28,28 +28,6 @@ join_census_data <- function(df, year){
     )
   
   
-  ## economic mobility ##
-  
-  # mobility <- 
-  #   read_csv(paste0(machine_path, "research/projects/secondary_data/mobility/chetty_mobility.csv")) %>% 
-  #   dplyr::select(
-  #     fips_code = `County FIPS 2000`,
-  #     mob25_all = `Hhold Inc. All Kids p25`,
-  #     mob75_all = `Hhold Inc. All Kids p75`,
-  #     mob25_ga = `Hhold Inc. Gend. Avg. p25`,
-  #     mob75_ga = `Hhold Inc. Gend. Avg. p75`
-  #   ) %>% 
-  #   mutate(
-  #     fips_code = as.character(ifelse(nchar(fips_code) == 4, paste0("0", fips_code), fips_code))
-  #   )
-  # 
-  # df <-
-  #   df %>% 
-  #   left_join(
-  #     mobility
-  #   )
-  # 
-  
   ## Land Area ##
   
   county_land_area <- 
