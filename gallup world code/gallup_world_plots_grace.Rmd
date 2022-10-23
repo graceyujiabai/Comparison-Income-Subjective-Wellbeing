@@ -375,5 +375,3 @@ ggsave("dem_rf_gdp.png")
 library(gridExtra)
 gridExtra::grid.arrange(dem_rf_idv, dem_rf_pdi, dem_rf_ivr, dem_rf_gdp, nrow=2)
 ```
-
-siginificant: "comp_income_effect","age_scale","gender2","household_size_scale","marital_status2","marital_status8","pdi","idv","uai","ivr" (old results; didn't delete just for the record)
